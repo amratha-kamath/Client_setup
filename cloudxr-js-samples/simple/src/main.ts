@@ -44,6 +44,7 @@ import {
   enableLocalStorage,
   getConnectionConfig,
   getGridFromInputs,
+  getUrlParams,
   getResolutionFromInputs,
   setupCertificateAcceptanceLink,
 } from '@helpers/utils';
@@ -254,6 +255,9 @@ class CloudXRClient {
     enableLocalStorage(this.mediaPortInput, 'mediaPort');
     enableLocalStorage(this.codecSelect, 'codec');
 
+    // Allow public links to prefill connection fields (for example from Vercel-hosted URLs).
+    this.applyConnectionParamsFromUrl();
+
     // Update slider value display when it changes
     this.posePredictionFactorInput.addEventListener('input', () => {
       this.posePredictionFactorValue.textContent = this.posePredictionFactorInput.value;
@@ -339,8 +343,12 @@ class CloudXRClient {
   private async checkWebXRSupport(): Promise<void> {
     const { supportsImmersive, iwerLoaded } = await loadIWERIfNeeded();
     if (!supportsImmersive) {
-      this.showStatus('Immersive mode not supported', 'error');
+      const unsupportedMessage = this.isVisionProLikeBrowser()
+        ? 'Immersive WebXR is not available in this browser environment. This CloudXR web sample needs immersive WebXR, so CONNECT is disabled on Vision Pro Safari.'
+        : 'Immersive WebXR is not available in this browser. This CloudXR sample requires immersive WebXR, so CONNECT is disabled on unsupported devices.';
+      this.showStatus(unsupportedMessage, 'error');
       this.startButton.disabled = true;
+      this.startButton.innerHTML = 'CONNECT (WebXR required)';
       return;
     }
 
@@ -371,6 +379,53 @@ class CloudXRClient {
 
     this.capabilitiesValid = true;
     this.updateConnectButtonState();
+
+    const shareableUrl = this.buildShareableConnectionUrl();
+    if (shareableUrl) {
+      console.info('Shareable CloudXR client URL:', shareableUrl);
+    }
+  }
+
+  /** Applies optional URL parameters to make public links easier to share and reuse. */
+  private applyConnectionParamsFromUrl(): void {
+    const params = getUrlParams();
+    const serverIp = params.serverIp || params.serverIP || params.ip || params.host;
+    const port = params.port;
+    const proxyUrl = params.proxyUrl || params.proxy;
+
+    if (serverIp) {
+      this.serverIpInput.value = serverIp;
+      this.serverIpInput.dispatchEvent(new Event('change'));
+    }
+    if (port) {
+      this.portInput.value = port;
+      this.portInput.dispatchEvent(new Event('change'));
+    }
+    if (proxyUrl) {
+      this.proxyUrlInput.value = proxyUrl;
+      this.proxyUrlInput.dispatchEvent(new Event('change'));
+    }
+  }
+
+  /** Generates a shareable URL with connection fields prefilled for supported WebXR devices. */
+  private buildShareableConnectionUrl(): string {
+    const serverIp = this.serverIpInput.value.trim();
+    const port = this.portInput.value.trim();
+
+    if (!serverIp) return '';
+
+    const url = new URL(window.location.href);
+    url.searchParams.set('serverIp', serverIp);
+    if (port) {
+      url.searchParams.set('port', port);
+    }
+    return url.toString();
+  }
+
+  /** Browser hint used only for more specific status messaging. */
+  private isVisionProLikeBrowser(): boolean {
+    const ua = navigator.userAgent.toLowerCase();
+    return ua.includes('xros') || ua.includes('vision');
   }
 
   private showStatus(message: string, type: 'success' | 'error' | 'info'): void {
